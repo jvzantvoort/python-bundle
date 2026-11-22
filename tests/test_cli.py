@@ -3,7 +3,7 @@ import json
 
 import pytest
 from click.testing import CliRunner
-from PIL import Image
+from PIL import Image, TiffImagePlugin
 
 from bundle_python.cli import main
 
@@ -54,3 +54,20 @@ def test_exit_codes(bundle, tmp_path):
     (bundle / ".bundle" / "MEDIA.json").write_text("{bad")
     assert run("show", bundle).exit_code == 2
 
+
+def test_zero_denominator_is_stored_as_null(tmp_path):
+    """Pillow turns a rational with a zero denominator into NaN, which is not valid JSON."""
+    (tmp_path / ".bundle").mkdir()
+    (tmp_path / ".bundle" / "META.json").write_text("{}")
+    exif = Image.Exif()
+    exif[0x010F] = "ACME"
+    exif[0x011A] = TiffImagePlugin.IFDRational(0, 0)  # XResolution 0/0
+    exif[0x011B] = TiffImagePlugin.IFDRational(72, 1)  # YResolution
+    Image.new("RGB", (4, 2)).save(tmp_path / "lens.jpg", exif=exif)
+
+    assert run("scan", tmp_path).exit_code == 0
+    text = (tmp_path / ".bundle" / "MEDIA.json").read_text()
+    assert "NaN" not in text
+    stored = json.loads(text)["files"]["lens.jpg"]["exif"]
+    assert stored["XResolution"] is None
+    assert stored["YResolution"] == 72.0

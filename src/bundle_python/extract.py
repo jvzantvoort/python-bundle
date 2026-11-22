@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import math
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -31,9 +32,11 @@ def _plain(value: Any) -> Any:
     if isinstance(value, (int, str, bool)) or value is None:
         return value
     try:  # IFDRational and friends
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return str(value)
+    # A rational with a zero denominator is NaN, which JSON cannot hold
+    return number if math.isfinite(number) else None
 
 
 def _read_exif(img: Image.Image) -> dict[str, Any]:

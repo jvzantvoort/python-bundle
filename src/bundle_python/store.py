@@ -8,6 +8,7 @@ checksum, so this never changes a bundle's identity.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import tempfile
@@ -67,12 +68,24 @@ def load(root: Path) -> dict[str, Any]:
     return data
 
 
+def _finite(value: Any) -> Any:
+    """Replace NaN and infinities with None: they are not valid JSON, and other readers
+    (bundle-server, the Go bundle CLI) reject a file that contains them."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_finite(v) for v in value]
+    return value
+
+
 def save(root: Path, data: dict[str, Any]) -> None:
     target = root / ".bundle" / MEDIA_FILE
     try:
         fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".media-")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(data, fh, indent=2, sort_keys=True)
+            json.dump(_finite(data), fh, indent=2, sort_keys=True, allow_nan=False)
             fh.write("\n")
         os.chmod(tmp, 0o644)
         os.replace(tmp, target)
